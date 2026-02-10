@@ -10,7 +10,7 @@ This folder deploys the phase-2 stack to Kubernetes:
 ## 1) Build images locally
 
 ```bash
-cd /Users/nelson/py/predictive_maintaince_platform
+cd <repo-root>
 
 docker compose build producer aggregator
 

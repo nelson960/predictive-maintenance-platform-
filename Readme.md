@@ -162,6 +162,30 @@ Output artifacts:
 - `models/cmapss/registry/<run_id>/...` (versioned)
 - `models/cmapss/current/...` (active)
 
+### 6.4 C-MAPSS Results Snapshot (FD001-FD004)
+
+RUL regression metrics (lower is better for `MAE`, `RMSE`, `NASA Score`; higher is better for `R2`):
+
+| Subset |   MAE |  RMSE |      R2 | NASA Score |
+| ------ | ----: | ----: | ------: | ---------: |
+| FD001  | 74.92 | 85.25 | -3.3908 |  405647.10 |
+| FD002  | 74.76 | 86.87 | -2.8550 | 1528242.34 |
+| FD003  | 73.86 | 83.90 | -3.3852 |  435313.32 |
+| FD004  | 79.12 | 90.73 | -3.1758 | 1710474.95 |
+
+Failure-risk classification metrics (`RUL <= 30`):
+
+| Subset | Accuracy | Precision | Recall |     F1 | ROC-AUC |
+| ------ | -------: | --------: | -----: | -----: | ------: |
+| FD001  |   0.8700 |    0.6875 | 0.8800 | 0.7719 |  0.9760 |
+| FD002  |   0.3784 |    0.2748 | 1.0000 | 0.4311 |  0.9807 |
+| FD003  |   0.9100 |    0.7200 | 0.9000 | 0.8000 |  0.9819 |
+| FD004  |   0.4113 |    0.2663 | 1.0000 | 0.4206 |  0.9754 |
+
+Full benchmark details:
+
+- `reports/cmapss_benchmark_table.md`
+
 ## 7) Anomaly Detection Layer
 
 ### 7.1 Anomaly trainer behavior
@@ -248,11 +272,15 @@ Endpoints:
 
 CLI path:
 
-- `/Users/nelson/py/predictive_maintaince_platform/scripts/pipeline.sh`
+- `./scripts/pipeline.sh`
 
 API reference:
 
-- `/Users/nelson/py/predictive_maintaince_platform/docs/api_interaction.md`
+- `./docs/api_interaction.md`
+
+C-MAPSS benchmark report:
+
+- `./reports/cmapss_benchmark_table.md`
 
 ### 9.1 Domain commands
 
@@ -264,7 +292,7 @@ API reference:
 ### 9.2 Most used commands
 
 ```bash
-cd /Users/nelson/py/predictive_maintaince_platform
+cd <repo-root>
 
 # streaming data generation
 ./scripts/pipeline.sh data_generation start
@@ -395,7 +423,7 @@ curl http://localhost:8001/anomaly/latest/M-001
 If you launched compose from multiple folders/project names, use a fixed project name:
 
 ```bash
-docker compose -p predictive_maintaince_platform -f /Users/nelson/py/predictive_maintaince_platform/docker-compose.yml ps
+docker compose -p predictive_maintaince_platform -f ./docker-compose.yml ps
 ```
 
 ### 13.2 No data files appearing
@@ -404,7 +432,7 @@ docker compose -p predictive_maintaince_platform -f /Users/nelson/py/predictive_
 - Check logs:
 
 ```bash
-docker compose -p predictive_maintaince_platform -f /Users/nelson/py/predictive_maintaince_platform/docker-compose.yml logs --tail 200 producer aggregator
+docker compose -p predictive_maintaince_platform -f ./docker-compose.yml logs --tail 200 producer aggregator
 ```
 
 ### 13.3 Trainer reports insufficient samples

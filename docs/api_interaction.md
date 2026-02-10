@@ -10,7 +10,7 @@ This document covers every available HTTP request for the two running APIs:
 From project root:
 
 ```bash
-cd /Users/nelson/py/predictive_maintaince_platform
+cd <repo-root>
 
 # make sure feature data exists
 ./scripts/pipeline.sh data_generation start --duration 120 --clear-data
