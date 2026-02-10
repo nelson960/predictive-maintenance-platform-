@@ -1,0 +1,29 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: pm-config
+  namespace: predictive-maintenance
+data:
+  KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+  KAFKA_TOPIC: sensor-events
+  NUM_MACHINES: "10"
+  TICK_SECONDS: "1"
+  MAX_RUNTIME_SECONDS: "0"
+
+  KAFKA_CONSUMER_GROUP: feature-agg-v1
+  KAFKA_AUTO_OFFSET_RESET: latest
+  WINDOW_SHORT_SECONDS: "5"
+  WINDOW_LONG_SECONDS: "30"
+  FLUSH_INTERVAL_SECONDS: "5"
+
+  FEATURES_DIR: /data/features_offline
+  MODEL_REGISTRY_DIR: /data/models/registry
+  MODEL_CURRENT_DIR: /data/models/current
+  MODEL_PATH: /data/models/current/model.joblib
+  MAX_SCAN_FILES: "200"
+
+  ANOMALY_REGISTRY_DIR: /data/models/anomaly/registry
+  ANOMALY_CURRENT_DIR: /data/models/anomaly/current
+  ANOMALY_BASELINE_PATH: /data/models/anomaly/current/baseline.json
+  ZSCORE_THRESHOLD: "3.0"
+  PERSISTENCE_WINDOWS: "3"

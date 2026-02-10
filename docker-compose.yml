@@ -1,0 +1,157 @@
+services:
+  redpanda:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.8
+    container_name: redpanda
+    command:
+      - redpanda
+      - start
+      - --overprovisioned
+      - --smp
+      - "1"
+      - --memory
+      - 1G
+      - --reserve-memory
+      - 0M
+      - --node-id
+      - "0"
+      - --check=false
+      - --kafka-addr
+      - PLAINTEXT://0.0.0.0:9092
+      - --advertise-kafka-addr
+      - PLAINTEXT://redpanda:9092
+    ports:
+      - "9092:9092"
+      - "9644:9644"
+
+  init-topic:
+    image: docker.redpanda.com/redpandadata/redpanda:v24.3.8
+    depends_on:
+      - redpanda
+    entrypoint: ["/bin/bash", "-c"]
+    command: >
+      until rpk cluster info -X brokers=redpanda:9092; do sleep 2; done;
+      rpk topic create sensor-events -p 6 -r 1 -X brokers=redpanda:9092 || true
+
+  producer:
+    build:
+      context: /Users/nelson/py/predictive_maintaince_platform/app/producer
+    depends_on:
+      - init-topic
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_TOPIC: sensor-events
+      NUM_MACHINES: "10"
+      TICK_SECONDS: "1"
+      MAX_RUNTIME_SECONDS: "${MAX_RUNTIME_SECONDS:-300}"
+    restart: on-failure
+
+  aggregator:
+    build:
+      context: /Users/nelson/py/predictive_maintaince_platform/app/aggregator
+    depends_on:
+      - init-topic
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: redpanda:9092
+      KAFKA_TOPIC: sensor-events
+      KAFKA_CONSUMER_GROUP: feature-agg-v1
+      KAFKA_AUTO_OFFSET_RESET: latest
+      WINDOW_SHORT_SECONDS: "5"
+      WINDOW_LONG_SECONDS: "30"
+      FLUSH_INTERVAL_SECONDS: "5"
+      OUTPUT_DIR: /data/features_offline
+      MAX_RUNTIME_SECONDS: "${MAX_RUNTIME_SECONDS:-300}"
+    volumes:
+      - /Users/nelson/py/predictive_maintaince_platform/data/features_offline:/data/features_offline
+    restart: on-failure
+
+  trainer:
+    build:
+      context: /Users/nelson/py/predictive_maintaince_platform/app/failure_risk_trainer
+    environment:
+      FEATURES_DIR: /data/features_offline
+      MODEL_REGISTRY_DIR: /data/models/registry
+      MODEL_CURRENT_DIR: /data/models/current
+      MIN_SAMPLES: "100"
+      TEST_SIZE: "0.2"
+      MAX_FILES: "0"
+    volumes:
+      - /Users/nelson/py/predictive_maintaince_platform/data/features_offline:/data/features_offline
+      - /Users/nelson/py/predictive_maintaince_platform/models:/data/models
+    profiles:
+      - ml
+    restart: "no"
+
+  cmapss-trainer:
+    build:
+      context: /Users/nelson/py/predictive_maintaince_platform/app/cmapss_trainer
+    environment:
+      CMAPSS_DATASET_DIR: /data/datasets/CMAPSSData
+      CMAPSS_SUBSET: "${CMAPSS_SUBSET:-FD001}"
+      CMAPSS_MODEL_REGISTRY_DIR: /data/models/cmapss/registry
+      CMAPSS_MODEL_CURRENT_DIR: /data/models/cmapss/current
+      RUL_CLIP_MAX: "130"
+      FAILURE_HORIZON_CYCLES: "30"
+      ROLLING_WINDOW: "5"
+      N_ESTIMATORS: "300"
+      RANDOM_STATE: "42"
+      N_JOBS: "-1"
+      MIN_TRAIN_ROWS: "1000"
+    volumes:
+      - /Users/nelson/py/predictive_maintaince_platform/datasets:/data/datasets:ro
+      - /Users/nelson/py/predictive_maintaince_platform/models:/data/models
+    profiles:
+      - ml
+    restart: "no"
+
+  model-service:
+    build:
+      context: /Users/nelson/py/predictive_maintaince_platform/app/failure_risk_model_service
+    environment:
+      MODEL_PATH: /data/models/current/model.joblib
+      FEATURES_DIR: /data/features_offline
+      MAX_SCAN_FILES: "200"
+    volumes:
+      - /Users/nelson/py/predictive_maintaince_platform/data/features_offline:/data/features_offline
+      - /Users/nelson/py/predictive_maintaince_platform/models:/data/models
+    ports:
+      - "8000:8000"
+    profiles:
+      - ml
+    restart: on-failure
+
+  anomaly-trainer:
+    build:
+      context: /Users/nelson/py/predictive_maintaince_platform/app/anomaly_trainer
+    environment:
+      FEATURES_DIR: /data/features_offline
+      ANOMALY_REGISTRY_DIR: /data/models/anomaly/registry
+      ANOMALY_CURRENT_DIR: /data/models/anomaly/current
+      MIN_SAMPLES: "200"
+      MIN_MACHINE_SAMPLES: "30"
+      MAX_FILES: "0"
+      ZSCORE_THRESHOLD: "3.0"
+      PERSISTENCE_WINDOWS: "3"
+    volumes:
+      - /Users/nelson/py/predictive_maintaince_platform/data/features_offline:/data/features_offline
+      - /Users/nelson/py/predictive_maintaince_platform/models:/data/models
+    profiles:
+      - ml
+    restart: "no"
+
+  anomaly-service:
+    build:
+      context: /Users/nelson/py/predictive_maintaince_platform/app/anomaly_service
+    environment:
+      ANOMALY_BASELINE_PATH: /data/models/anomaly/current/baseline.json
+      FEATURES_DIR: /data/features_offline
+      MAX_SCAN_FILES: "200"
+      ZSCORE_THRESHOLD: "3.0"
+      PERSISTENCE_WINDOWS: "3"
+    volumes:
+      - /Users/nelson/py/predictive_maintaince_platform/data/features_offline:/data/features_offline
+      - /Users/nelson/py/predictive_maintaince_platform/models:/data/models
+    ports:
+      - "8001:8001"
+    profiles:
+      - ml
+    restart: on-failure

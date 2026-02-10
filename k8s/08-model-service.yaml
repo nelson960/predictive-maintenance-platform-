@@ -1,0 +1,44 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: model-service
+  namespace: predictive-maintenance
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: model-service
+  template:
+    metadata:
+      labels:
+        app: model-service
+    spec:
+      containers:
+        - name: model-service
+          image: predictive_maintaince_platform-model-service:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: pm-config
+          volumeMounts:
+            - name: shared-data
+              mountPath: /data
+          ports:
+            - containerPort: 8000
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: pm-shared-pvc
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: model-service
+  namespace: predictive-maintenance
+spec:
+  selector:
+    app: model-service
+  ports:
+    - name: http
+      port: 8000
+      targetPort: 8000

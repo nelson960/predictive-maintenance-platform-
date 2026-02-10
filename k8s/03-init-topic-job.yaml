@@ -1,0 +1,17 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: init-topic
+  namespace: predictive-maintenance
+spec:
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: init-topic
+          image: docker.redpanda.com/redpandadata/redpanda:v24.3.8
+          command: ["/bin/bash", "-c"]
+          args:
+            - |
+              until rpk cluster info -X brokers=redpanda:9092; do sleep 2; done
+              rpk topic create sensor-events -p 6 -r 1 -X brokers=redpanda:9092 || true

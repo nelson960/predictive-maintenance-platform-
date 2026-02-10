@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: trainer
+  namespace: predictive-maintenance
+spec:
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: trainer
+          image: predictive_maintaince_platform-trainer:latest
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: pm-config
+          env:
+            - name: MIN_SAMPLES
+              value: "100"
+            - name: TEST_SIZE
+              value: "0.2"
+          volumeMounts:
+            - name: shared-data
+              mountPath: /data
+      volumes:
+        - name: shared-data
+          persistentVolumeClaim:
+            claimName: pm-shared-pvc
