@@ -1,10 +1,12 @@
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
 ANOMALY_BASELINE_PATH = Path(os.getenv("ANOMALY_BASELINE_PATH", "/data/models/anomaly/current/baseline.json"))
@@ -20,6 +22,37 @@ app = FastAPI(title="Predictive Maintenance Anomaly Service", version="0.1.0")
 ANOMALY_BASELINE = None
 CONSECUTIVE_COUNTS: Dict[str, int] = {}
 
+HTTP_REQUESTS = Counter(
+    "anomaly_api_requests_total",
+    "Total HTTP requests for the anomaly API",
+    ["method", "path", "status"],
+)
+HTTP_REQUEST_LATENCY_SECONDS = Histogram(
+    "anomaly_api_request_latency_seconds",
+    "HTTP request latency for the anomaly API",
+    ["method", "path"],
+)
+ANOMALY_REQUESTS = Counter(
+    "anomaly_api_detect_requests_total",
+    "Number of /anomaly calls",
+)
+ANOMALY_LATEST_REQUESTS = Counter(
+    "anomaly_api_detect_latest_requests_total",
+    "Number of /anomaly/latest/{machine_id} calls",
+)
+BASELINE_RELOADS = Counter(
+    "anomaly_api_baseline_reloads_total",
+    "Number of successful anomaly baseline reloads",
+)
+BASELINE_LOADED = Gauge(
+    "anomaly_api_baseline_loaded",
+    "1 if anomaly baseline is loaded, otherwise 0",
+)
+BASELINE_LAST_RELOAD_UNIX = Gauge(
+    "anomaly_api_baseline_last_reload_unix",
+    "Unix timestamp of the last successful baseline load/reload",
+)
+
 
 class AnomalyRequest(BaseModel):
     machine_id: Optional[str] = None
@@ -30,6 +63,30 @@ class ReloadResponse(BaseModel):
     loaded: bool
     baseline_path: str
     loaded_at: str
+
+
+def route_path_label(request: Request) -> str:
+    route = request.scope.get("route")
+    if route is not None and getattr(route, "path", None):
+        return route.path
+    return request.url.path
+
+
+@app.middleware("http")
+async def capture_http_metrics(request: Request, call_next):
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        path = request.url.path
+        HTTP_REQUESTS.labels(request.method, path, "500").inc()
+        HTTP_REQUEST_LATENCY_SECONDS.labels(request.method, path).observe(time.perf_counter() - start)
+        raise
+
+    path = route_path_label(request)
+    HTTP_REQUESTS.labels(request.method, path, str(response.status_code)).inc()
+    HTTP_REQUEST_LATENCY_SECONDS.labels(request.method, path).observe(time.perf_counter() - start)
+    return response
 
 
 def safe_float(value, default=0.0) -> float:
@@ -46,19 +103,24 @@ def ensure_baseline_loaded(force: bool = False):
         return ANOMALY_BASELINE
 
     if not ANOMALY_BASELINE_PATH.exists():
+        BASELINE_LOADED.set(0)
         raise HTTPException(status_code=503, detail=f"anomaly baseline not found at {ANOMALY_BASELINE_PATH}")
 
     with ANOMALY_BASELINE_PATH.open("r", encoding="utf-8") as handle:
         artifact = json.load(handle)
 
     if not isinstance(artifact, dict):
+        BASELINE_LOADED.set(0)
         raise HTTPException(status_code=503, detail="anomaly baseline is invalid")
 
     required = ["monitored_features", "global_baseline", "hard_limits"]
     if any(key not in artifact for key in required):
+        BASELINE_LOADED.set(0)
         raise HTTPException(status_code=503, detail="anomaly baseline missing required fields")
 
     ANOMALY_BASELINE = artifact
+    BASELINE_LOADED.set(1)
+    BASELINE_LAST_RELOAD_UNIX.set(datetime.now(timezone.utc).timestamp())
     return ANOMALY_BASELINE
 
 
@@ -256,6 +318,11 @@ def health():
     }
 
 
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.get("/baseline/info")
 def baseline_info():
     artifact = ensure_baseline_loaded()
@@ -274,6 +341,7 @@ def baseline_info():
 @app.post("/reload", response_model=ReloadResponse)
 def reload_baseline():
     ensure_baseline_loaded(force=True)
+    BASELINE_RELOADS.inc()
     return ReloadResponse(
         loaded=True,
         baseline_path=str(ANOMALY_BASELINE_PATH),
@@ -283,6 +351,7 @@ def reload_baseline():
 
 @app.post("/anomaly")
 def detect_anomaly(request: AnomalyRequest):
+    ANOMALY_REQUESTS.inc()
     machine_id = request.machine_id or request.features.get("machine_id")
     if not machine_id:
         raise HTTPException(status_code=400, detail="machine_id is required")
@@ -292,6 +361,7 @@ def detect_anomaly(request: AnomalyRequest):
 
 @app.get("/anomaly/latest/{machine_id}")
 def detect_anomaly_latest(machine_id: str):
+    ANOMALY_LATEST_REQUESTS.inc()
     row, source_file = find_latest_machine_row(machine_id)
     return evaluate_row(
         machine_id=machine_id,

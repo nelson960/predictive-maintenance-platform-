@@ -22,6 +22,9 @@ cd <repo-root>
 # train and start anomaly API
 ./scripts/pipeline.sh anomaly train --build
 ./scripts/pipeline.sh anomaly start
+
+# optional: start prometheus monitoring
+docker compose --profile ml -f ./docker-compose.yml up -d --build prometheus failure-risk-service anomaly-service
 ```
 
 ## 2) Interactive API Docs (Swagger)
@@ -92,7 +95,15 @@ Common error:
 
 - `503` if model artifact is missing or invalid.
 
-### 3.3 POST `/reload`
+### 3.3 GET `/metrics`
+
+Purpose: Prometheus metrics endpoint for failure-risk API.
+
+```bash
+curl -s "$FAILURE_API/metrics" | head -n 30
+```
+
+### 3.4 POST `/reload`
 
 Purpose: force reload model from disk.
 
@@ -114,7 +125,7 @@ Common error:
 
 - `503` if model file is missing/invalid.
 
-### 3.4 POST `/predict`
+### 3.5 POST `/predict`
 
 Purpose: score a single feature payload.
 
@@ -185,7 +196,7 @@ Common errors:
 - `422` invalid JSON/body schema.
 - `503` model missing/invalid.
 
-### 3.5 GET `/predict/latest/{machine_id}`
+### 3.6 GET `/predict/latest/{machine_id}`
 
 Purpose: auto-load latest feature row on disk for one machine and score it.
 
@@ -265,7 +276,15 @@ Common error:
 
 - `503` baseline missing/invalid.
 
-### 4.3 POST `/reload`
+### 4.3 GET `/metrics`
+
+Purpose: Prometheus metrics endpoint for anomaly API.
+
+```bash
+curl -s "$ANOMALY_API/metrics" | head -n 30
+```
+
+### 4.4 POST `/reload`
 
 Purpose: force reload anomaly baseline from disk.
 
@@ -287,7 +306,7 @@ Common error:
 
 - `503` baseline missing/invalid.
 
-### 4.4 POST `/anomaly`
+### 4.5 POST `/anomaly`
 
 Purpose: detect anomaly from provided feature payload.
 
@@ -368,7 +387,7 @@ Common errors:
 - `422` invalid JSON/body schema.
 - `503` baseline missing/invalid.
 
-### 4.5 GET `/anomaly/latest/{machine_id}`
+### 4.6 GET `/anomaly/latest/{machine_id}`
 
 Purpose: auto-load latest feature row on disk for one machine and evaluate anomaly.
 
@@ -418,3 +437,4 @@ curl -s "$ANOMALY_API/anomaly/latest/M-001"
 - Failure-risk model currently trains from synthetic labels built from engineered risk heuristics.
 - Anomaly model uses hard limits + z-score deviations + persistence windows.
 - C-MAPSS trainer currently generates offline artifacts and does not expose additional HTTP endpoints.
+- Prometheus UI is available at `http://localhost:9090` and target status at `http://localhost:9090/targets`.

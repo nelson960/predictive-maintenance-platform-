@@ -1,15 +1,15 @@
 apiVersion: batch/v1
 kind: Job
 metadata:
-  name: trainer
+  name: failure-risk-trainer
   namespace: predictive-maintenance
 spec:
   template:
     spec:
       restartPolicy: Never
       containers:
-        - name: trainer
-          image: predictive_maintaince_platform-trainer:latest
+        - name: failure-risk-trainer
+          image: predictive_maintaince_platform-failure-risk-trainer:latest
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:

@@ -1,21 +1,21 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: model-service
+  name: failure-risk-service
   namespace: predictive-maintenance
 spec:
   replicas: 1
   selector:
     matchLabels:
-      app: model-service
+      app: failure-risk-service
   template:
     metadata:
       labels:
-        app: model-service
+        app: failure-risk-service
     spec:
       containers:
-        - name: model-service
-          image: predictive_maintaince_platform-model-service:latest
+        - name: failure-risk-service
+          image: predictive_maintaince_platform-failure-risk-service:latest
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -33,11 +33,11 @@ spec:
 apiVersion: v1
 kind: Service
 metadata:
-  name: model-service
+  name: failure-risk-service
   namespace: predictive-maintenance
 spec:
   selector:
-    app: model-service
+    app: failure-risk-service
   ports:
     - name: http
       port: 8000

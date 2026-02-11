@@ -19,7 +19,7 @@ Usage:
 
 Commands:
   data_generation  Data stream lifecycle: start, stop, status.
-  failure-risk-prediction  Failure-risk model lifecycle: train, start, stop, status.
+  failure-risk-prediction  Failure-risk lifecycle: train, start, stop, status.
   anomaly   Anomaly lifecycle subcommands: train, start, stop, status.
   cmapss  NASA C-MAPSS model lifecycle: train and status.
 
@@ -47,7 +47,7 @@ Examples:
   scripts/pipeline.sh cmapss train --subset FD001
 
 Compatibility Aliases (still supported):
-  start, stop, status, run, train, model, model-start, model-stop, model-status,
+  start, stop, status, run, train (legacy),
   failure_risk_prediction,
   anomaly-train, anomaly-start, anomaly-stop, anomaly-status,
   cmapss-train
@@ -179,34 +179,34 @@ status_stream() {
   compose_ml ps
 }
 
-model_train() {
+failure_risk_train() {
   local build_flag="$1"
   if [[ "${build_flag}" == "true" ]]; then
-    log "building trainer image"
-    compose_ml build trainer >/dev/null
+    log "building failure-risk-trainer image"
+    compose_ml build failure-risk-trainer >/dev/null
   fi
-  log "running trainer"
-  compose_ml run --rm trainer
+  log "running failure-risk-trainer"
+  compose_ml run --rm failure-risk-trainer
 }
 
-model_start() {
+failure_risk_start() {
   local build_flag="$1"
   if [[ "${build_flag}" == "true" ]]; then
-    log "starting model-service (build=true)"
-    compose_ml up -d --build model-service >/dev/null
+    log "starting failure-risk-service (build=true)"
+    compose_ml up -d --build failure-risk-service >/dev/null
   else
-    log "starting model-service"
-    compose_ml up -d model-service >/dev/null
+    log "starting failure-risk-service"
+    compose_ml up -d failure-risk-service >/dev/null
   fi
 }
 
-model_stop() {
-  log "stopping model-service"
-  compose_ml stop model-service >/dev/null 2>&1 || true
+failure_risk_stop() {
+  log "stopping failure-risk-service"
+  compose_ml stop failure-risk-service >/dev/null 2>&1 || true
 }
 
-model_status() {
-  compose_ml ps model-service
+failure_risk_status() {
+  compose_ml ps failure-risk-service
 }
 
 anomaly_train() {
@@ -314,7 +314,7 @@ main() {
       esac
       ;;
     failure-risk-prediction|failure_risk_prediction|failure-risk|failure_risk)
-      command="model"
+      command="failure-risk"
       action="${1:-}"
       if [[ -z "${action}" ]]; then
         echo "missing subcommand for failure-risk-prediction (use train|start|stop|status)" >&2
@@ -341,22 +341,23 @@ main() {
       run_alias="true"
       ;;
     train)
-      command="model"
+      command="failure-risk"
       action="train"
       ;;
     model)
       # keep as-is for backward compatibility with previous interface
+      command="failure-risk"
       ;;
     model-start)
-      command="model"
+      command="failure-risk"
       action="start"
       ;;
     model-stop)
-      command="model"
+      command="failure-risk"
       action="stop"
       ;;
     model-status)
-      command="model"
+      command="failure-risk"
       action="status"
       ;;
     anomaly-train)
@@ -381,7 +382,7 @@ main() {
       ;;
   esac
 
-  if [[ "${command}" == "model" || "${command}" == "anomaly" || "${command}" == "cmapss" ]]; then
+  if [[ "${command}" == "failure-risk" || "${command}" == "anomaly" || "${command}" == "cmapss" ]]; then
     if [[ -z "${action}" ]]; then
       action="${1:-}"
       if [[ -z "${action}" ]]; then
@@ -480,24 +481,24 @@ main() {
     status)
       status_stream
       ;;
-    model)
+    failure-risk)
       case "${action}" in
         train)
-          model_train "${build_flag}"
+          failure_risk_train "${build_flag}"
           ;;
         start)
-          model_start "${build_flag}"
-          model_status
+          failure_risk_start "${build_flag}"
+          failure_risk_status
           ;;
         stop)
-          model_stop
-          model_status
+          failure_risk_stop
+          failure_risk_status
           ;;
         status)
-          model_status
+          failure_risk_status
           ;;
         *)
-          echo "unknown model action: ${action}" >&2
+          echo "unknown failure-risk action: ${action}" >&2
           print_usage
           exit 1
           ;;

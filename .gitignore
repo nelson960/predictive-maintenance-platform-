@@ -43,6 +43,7 @@ docker-compose.override.yml
 # Generated pipeline outputs
 data/features_offline/
 data/run_logs/
+monitoring/prometheus/data/
 
 # Generated model artifacts
 models/current/

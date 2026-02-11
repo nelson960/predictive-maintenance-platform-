@@ -1,12 +1,14 @@
 import json
 import os
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 
 import joblib
 import numpy as np
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request, Response
+from prometheus_client import CONTENT_TYPE_LATEST, Counter, Gauge, Histogram, generate_latest
 from pydantic import BaseModel, Field
 
 MODEL_PATH = Path(os.getenv("MODEL_PATH", "/data/models/current/model.joblib"))
@@ -16,6 +18,37 @@ MAX_SCAN_FILES = int(os.getenv("MAX_SCAN_FILES", "200"))
 app = FastAPI(title="Predictive Maintenance Model Service", version="0.1.0")
 
 MODEL_ARTIFACT = None
+
+HTTP_REQUESTS = Counter(
+    "failure_risk_api_requests_total",
+    "Total HTTP requests for the failure-risk API",
+    ["method", "path", "status"],
+)
+HTTP_REQUEST_LATENCY_SECONDS = Histogram(
+    "failure_risk_api_request_latency_seconds",
+    "HTTP request latency for the failure-risk API",
+    ["method", "path"],
+)
+PREDICT_REQUESTS = Counter(
+    "failure_risk_api_predict_requests_total",
+    "Number of /predict calls",
+)
+PREDICT_LATEST_REQUESTS = Counter(
+    "failure_risk_api_predict_latest_requests_total",
+    "Number of /predict/latest/{machine_id} calls",
+)
+MODEL_RELOADS = Counter(
+    "failure_risk_api_model_reloads_total",
+    "Number of successful model reloads",
+)
+MODEL_LOADED = Gauge(
+    "failure_risk_api_model_loaded",
+    "1 if a model artifact is loaded, otherwise 0",
+)
+MODEL_LAST_RELOAD_UNIX = Gauge(
+    "failure_risk_api_model_last_reload_unix",
+    "Unix timestamp of the last successful model load/reload",
+)
 
 
 class PredictRequest(BaseModel):
@@ -32,6 +65,30 @@ class ReloadResponse(BaseModel):
     loaded: bool
     model_path: str
     loaded_at: str
+
+
+def route_path_label(request: Request) -> str:
+    route = request.scope.get("route")
+    if route is not None and getattr(route, "path", None):
+        return route.path
+    return request.url.path
+
+
+@app.middleware("http")
+async def capture_http_metrics(request: Request, call_next):
+    start = time.perf_counter()
+    try:
+        response = await call_next(request)
+    except Exception:
+        path = request.url.path
+        HTTP_REQUESTS.labels(request.method, path, "500").inc()
+        HTTP_REQUEST_LATENCY_SECONDS.labels(request.method, path).observe(time.perf_counter() - start)
+        raise
+
+    path = route_path_label(request)
+    HTTP_REQUESTS.labels(request.method, path, str(response.status_code)).inc()
+    HTTP_REQUEST_LATENCY_SECONDS.labels(request.method, path).observe(time.perf_counter() - start)
+    return response
 
 
 def safe_float(value, default=0.0) -> float:
@@ -55,14 +112,18 @@ def ensure_model_loaded(force: bool = False):
         return MODEL_ARTIFACT
 
     if not MODEL_PATH.exists():
+        MODEL_LOADED.set(0)
         raise HTTPException(status_code=503, detail=f"model artifact not found at {MODEL_PATH}")
 
     artifact = joblib.load(MODEL_PATH)
 
     if not isinstance(artifact, dict) or "model" not in artifact or "feature_columns" not in artifact:
+        MODEL_LOADED.set(0)
         raise HTTPException(status_code=503, detail="model artifact is invalid")
 
     MODEL_ARTIFACT = artifact
+    MODEL_LOADED.set(1)
+    MODEL_LAST_RELOAD_UNIX.set(datetime.now(timezone.utc).timestamp())
     return MODEL_ARTIFACT
 
 
@@ -132,6 +193,11 @@ def health():
     }
 
 
+@app.get("/metrics")
+def metrics():
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.get("/model/info")
 def model_info():
     artifact = ensure_model_loaded()
@@ -148,6 +214,7 @@ def model_info():
 @app.post("/reload", response_model=ReloadResponse)
 def reload_model():
     ensure_model_loaded(force=True)
+    MODEL_RELOADS.inc()
     return ReloadResponse(
         loaded=True,
         model_path=str(MODEL_PATH),
@@ -157,6 +224,7 @@ def reload_model():
 
 @app.post("/predict", response_model=PredictResponse)
 def predict(request: PredictRequest):
+    PREDICT_REQUESTS.inc()
     probability, artifact = predict_probability(request.features)
     return PredictResponse(
         failure_probability=probability,
@@ -167,6 +235,7 @@ def predict(request: PredictRequest):
 
 @app.get("/predict/latest/{machine_id}")
 def predict_latest(machine_id: str):
+    PREDICT_LATEST_REQUESTS.inc()
     row, source_file = find_latest_machine_row(machine_id)
     probability, artifact = predict_probability(row)
     return {
